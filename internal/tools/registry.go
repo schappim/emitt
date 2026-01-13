@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
-	"github.com/sashabaranov/go-openai"
 )
 
 // Tool represents a callable tool/function
@@ -110,29 +109,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args json.RawMessag
 		Msg("Tool execution completed")
 
 	return result, nil
-}
-
-// ToOpenAITools converts registry tools to OpenAI function definitions
-func (r *Registry) ToOpenAITools(names []string) []openai.Tool {
-	var tools []Tool
-	if len(names) == 0 {
-		tools = r.GetAll()
-	} else {
-		tools = r.GetByNames(names)
-	}
-
-	result := make([]openai.Tool, len(tools))
-	for i, t := range tools {
-		result[i] = openai.Tool{
-			Type: openai.ToolTypeFunction,
-			Function: &openai.FunctionDefinition{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  t.Parameters(),
-			},
-		}
-	}
-	return result
 }
 
 // ToolResult represents the result of a tool execution
