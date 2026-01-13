@@ -73,7 +73,7 @@ database:
 llm:
   provider: "openai"
   api_key: "${OPENAI_API_KEY}"
-  model: "gpt-4o"
+  model: "gpt-5.2"
   max_tokens: 4096
   temperature: 0.7
 

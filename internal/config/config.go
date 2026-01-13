@@ -164,7 +164,7 @@ func (c *Config) setDefaults() {
 		c.LLM.Provider = "openai"
 	}
 	if c.LLM.Model == "" {
-		c.LLM.Model = "gpt-4o"
+		c.LLM.Model = "gpt-5.2"
 	}
 	if c.LLM.MaxTokens == 0 {
 		c.LLM.MaxTokens = 4096
