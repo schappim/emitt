@@ -11,10 +11,24 @@ import (
 // Config represents the application configuration
 type Config struct {
 	Server    ServerConfig    `yaml:"server"`
+	SMTP      SMTPOutConfig   `yaml:"smtp"`
 	Database  DatabaseConfig  `yaml:"database"`
 	LLM       LLMConfig       `yaml:"llm"`
 	MCP       MCPConfig       `yaml:"mcp"`
 	Mailboxes []MailboxConfig `yaml:"mailboxes"`
+}
+
+// SMTPOutConfig holds outbound email settings
+type SMTPOutConfig struct {
+	Provider    string `yaml:"provider"` // "resend", "smtp", or empty for none
+	ResendKey   string `yaml:"resend_key"`
+	FromAddress string `yaml:"from_address"`
+	FromName    string `yaml:"from_name"`
+	// SMTP settings (if provider is "smtp")
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	Username string `yaml:"username"`
+	Password string `yaml:"password"`
 }
 
 // ServerConfig holds SMTP server settings
