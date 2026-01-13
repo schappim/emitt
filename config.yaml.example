@@ -1,5 +1,5 @@
-# Emitt Configuration
-# Email processing and LLM routing server
+# 🧤 eMitt Configuration
+# Catch every email - LLM-powered email processing server
 
 server:
   # SMTP server settings

@@ -1,6 +1,6 @@
-# Emitt
+# 🧤 eMitt
 
-A Go application for receiving and processing inbound emails with LLM-powered automation. Similar to Postmark's inbound email processing or Rails Action Mailbox, but with built-in AI capabilities.
+Catch every email. **eMitt** is a Go application for receiving and processing inbound emails with LLM-powered automation. Similar to Postmark's inbound email processing or Rails Action Mailbox, but with built-in AI capabilities.
 
 ## Features
 
@@ -19,7 +19,7 @@ A Go application for receiving and processing inbound emails with LLM-powered au
 ### From Source
 
 ```bash
-git clone https://github.com/yourusername/emitt.git
+git clone https://github.com/schappim/emitt.git
 cd emitt
 go build -o emitt ./cmd/emitt
 ```
@@ -105,7 +105,7 @@ Create `/etc/systemd/system/emitt.service`:
 
 ```ini
 [Unit]
-Description=Emitt Email Processing Server
+Description=eMitt Email Processing Server
 After=network.target
 
 [Service]
@@ -149,7 +149,7 @@ sudo ufw allow 25/tcp
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                         EMITT                                    │
+│                       🧤 eMitt                                   │
 ├─────────────────────────────────────────────────────────────────┤
 │  ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐  │
 │  │  SMTP    │───▶│  Router  │───▶│ Processor│───▶│  Actions │  │
