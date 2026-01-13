@@ -236,6 +236,39 @@ This is a test.
 QUIT
 ```
 
+## Development
+
+### Build from Source
+
+```bash
+# Build for current platform
+./scripts/build.sh local
+
+# Build for all platforms
+./scripts/build.sh
+
+# Build for specific OS
+./scripts/build.sh linux
+./scripts/build.sh darwin
+./scripts/build.sh windows
+```
+
+### Create a Release
+
+```bash
+# Interactive release (prompts for version)
+./scripts/release.sh
+
+# Or specify version directly
+./scripts/release.sh v1.1.0
+```
+
+The release script will:
+1. Build binaries for all platforms
+2. Create SHA-256 checksums
+3. Create and push a git tag
+4. Create a GitHub release with all assets
+
 ## License
 
 MIT
