@@ -1,0 +1,123 @@
+# Emitt Configuration
+# Email processing and LLM routing server
+
+server:
+  # SMTP server settings
+  smtp_port: 2525
+  smtp_host: "0.0.0.0"
+
+  # TLS configuration (optional)
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+  # Only accept emails for these domains
+  # Leave empty to accept all domains
+  allowed_domains:
+    - "example.com"
+
+database:
+  # SQLite database path
+  path: "./emitt.db"
+
+llm:
+  # LLM provider (currently only openai supported)
+  provider: "openai"
+
+  # OpenAI API key (use environment variable)
+  api_key: "${OPENAI_API_KEY}"
+
+  # Model to use
+  model: "gpt-4o"
+
+  # Maximum tokens for completion
+  max_tokens: 4096
+
+  # Temperature for generation (0-1)
+  temperature: 0.7
+
+# MCP (Model Context Protocol) servers
+# These provide additional tools to the LLM
+mcp:
+  servers: []
+  # Example MCP server configurations:
+  # - name: "filesystem"
+  #   command: "npx"
+  #   args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+  # - name: "brave-search"
+  #   command: "npx"
+  #   args: ["-y", "@anthropic/mcp-server-brave-search"]
+
+# Mailbox routing rules
+# Emails are matched against these rules in order
+mailboxes:
+  # Support mailbox - process with LLM
+  - name: "support"
+    match:
+      to: "support@.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are a helpful support assistant for processing incoming emails.
+
+        Your tasks:
+        1. Analyze the email content to understand the request
+        2. Categorize the issue (bug report, feature request, question, feedback)
+        3. Extract key information (urgency, affected features, user details)
+        4. Take appropriate action using available tools
+
+        When responding to emails:
+        - Be professional and empathetic
+        - Provide clear and helpful information
+        - If you need more information, ask specific questions
+
+        Available actions:
+        - Use http_request to call external APIs or webhooks
+        - Use database_query to look up or store information
+        - Use send_email to reply or forward the email
+      tools:
+        - http_request
+        - database_query
+        - send_email
+
+  # Invoices - extract data and store
+  - name: "invoices"
+    match:
+      subject: "(?i)invoice.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are an invoice processing assistant.
+
+        For each invoice email:
+        1. Extract invoice details (number, date, amount, vendor)
+        2. Store the information in the database
+        3. If attachments exist, note their filenames
+
+        Use the database_query tool to store extracted data.
+      tools:
+        - database_query
+
+  # Notifications - forward to admin
+  - name: "notifications"
+    match:
+      from: ".*@notifications\\..*"
+    processor:
+      type: "forward"
+      forward_to: "admin@example.com"
+
+  # Webhooks - send to external service
+  - name: "webhooks"
+    match:
+      to: "webhook@.*"
+    processor:
+      type: "webhook"
+      webhook_url: "https://example.com/api/email-webhook"
+
+  # Catch-all - store but don't process
+  - name: "catch-all"
+    match:
+      to: ".*"
+    processor:
+      type: "noop"
