@@ -51,15 +51,10 @@ type ResponseRequest struct {
 
 // Tool represents a tool definition for the Responses API
 type Tool struct {
-	Type     string    `json:"type"`
-	Function *Function `json:"function,omitempty"`
-}
-
-// Function represents a function tool
-type Function struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters"`
+	Type        string                 `json:"type"`
+	Name        string                 `json:"name,omitempty"`
+	Description string                 `json:"description,omitempty"`
+	Parameters  map[string]interface{} `json:"parameters,omitempty"`
 }
 
 // ResponseObject represents the response from the Responses API
@@ -281,12 +276,10 @@ func (c *LLMClient) convertTools(registry *tools.Registry, names []string) []Too
 	apiTools := make([]Tool, len(regTools))
 	for i, t := range regTools {
 		apiTools[i] = Tool{
-			Type: "function",
-			Function: &Function{
-				Name:        t.Name(),
-				Description: t.Description(),
-				Parameters:  t.Parameters(),
-			},
+			Type:        "function",
+			Name:        t.Name(),
+			Description: t.Description(),
+			Parameters:  t.Parameters(),
 		}
 	}
 	return apiTools
