@@ -107,9 +107,286 @@ mailboxes:
 - `webhook` - POST email data to a URL
 - `noop` - Store only, no processing
 
+## Tools
+
+eMitt provides three built-in tools that the LLM can use during email processing. Enable them in your mailbox configuration via the `tools` array.
+
+### `send_email` - Email Operations
+
+Send replies, forward emails, or compose new messages.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `action` | string | Yes | `"reply"`, `"forward"`, or `"send"` |
+| `to` | array | For forward/send | Recipient email addresses |
+| `cc` | array | No | CC email addresses |
+| `subject` | string | For send | Email subject (auto-generated for reply/forward) |
+| `body` | string | Yes | Plain text email body |
+| `html_body` | string | No | HTML email body |
+| `include_original` | boolean | No | Include original email (default: true for forward) |
+
+**Example Configuration:**
+```yaml
+mailboxes:
+  - name: "auto-responder"
+    match:
+      to: "info@.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are a helpful assistant. When someone emails, analyze their question
+        and send a helpful reply using the send_email tool with action "reply".
+
+        Always be professional and concise in your responses.
+      tools:
+        - send_email
+```
+
+**Example Tool Calls (what the LLM generates):**
+```json
+// Reply to sender
+{
+  "action": "reply",
+  "body": "Thank you for your inquiry! Here's the information you requested..."
+}
+
+// Forward to another address
+{
+  "action": "forward",
+  "to": ["admin@example.com"],
+  "body": "Please review this customer inquiry."
+}
+
+// Send a new email
+{
+  "action": "send",
+  "to": ["team@example.com"],
+  "subject": "New Support Request",
+  "body": "A new support request has been received..."
+}
+```
+
+---
+
+### `http_request` - HTTP/Webhook Calls
+
+Make HTTP requests to external APIs and webhooks.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `method` | string | Yes | `"GET"`, `"POST"`, `"PUT"`, `"PATCH"`, or `"DELETE"` |
+| `url` | string | Yes | Full URL (must start with http:// or https://) |
+| `headers` | object | No | HTTP headers as key-value pairs |
+| `body` | string | No | Request body (for POST/PUT/PATCH) |
+| `json_body` | object | No | JSON body (auto-serialized, sets Content-Type) |
+
+**Example Configuration:**
+```yaml
+mailboxes:
+  - name: "ticket-creator"
+    match:
+      to: "support@.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are a support ticket manager. When you receive an email:
+        1. Extract the issue description and priority
+        2. Create a ticket in our system using http_request
+        3. Reply to the sender with the ticket number
+
+        Ticket API endpoint: https://api.example.com/tickets
+        API Key: Bearer xyz123
+      tools:
+        - http_request
+        - send_email
+```
+
+**Example Tool Calls:**
+```json
+// POST with JSON body
+{
+  "method": "POST",
+  "url": "https://api.example.com/tickets",
+  "headers": {
+    "Authorization": "Bearer xyz123"
+  },
+  "json_body": {
+    "title": "Login issue reported",
+    "description": "User cannot log in to their account",
+    "priority": "high",
+    "email": "customer@example.com"
+  }
+}
+
+// GET request
+{
+  "method": "GET",
+  "url": "https://api.example.com/users/123",
+  "headers": {
+    "Authorization": "Bearer xyz123"
+  }
+}
+
+// POST to Slack webhook
+{
+  "method": "POST",
+  "url": "https://hooks.slack.com/services/xxx/yyy/zzz",
+  "json_body": {
+    "text": "New support email received from customer@example.com"
+  }
+}
+```
+
+---
+
+### `database_query` - SQL Database Operations
+
+Execute SQL queries against the SQLite database.
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | SQL query to execute |
+| `params` | array | No | Query parameters (for parameterized queries) |
+
+**Supported Operations:**
+- `SELECT` - Query data
+- `INSERT` - Insert new records
+- `UPDATE` - Update existing records
+- `DELETE` - Delete records
+
+**Blocked Operations:** `DROP`, `TRUNCATE`, `ALTER`, `CREATE` (DDL operations are not allowed)
+
+**Example Configuration:**
+```yaml
+mailboxes:
+  - name: "invoice-processor"
+    match:
+      subject: "(?i)invoice.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are an invoice processor. For each invoice email:
+        1. Extract: invoice number, vendor name, amount, date
+        2. Store the data in the invoices table using database_query
+        3. Reply confirming the invoice was processed
+
+        Database schema:
+        - invoices(id, invoice_number, vendor, amount, date, processed_at)
+      tools:
+        - database_query
+        - send_email
+```
+
+**Example Tool Calls:**
+```json
+// INSERT with parameters (safe from SQL injection)
+{
+  "query": "INSERT INTO invoices (invoice_number, vendor, amount, date, processed_at) VALUES (?, ?, ?, ?, datetime('now'))",
+  "params": ["INV-2024-001", "Acme Corp", "1500.00", "2024-01-15"]
+}
+
+// SELECT query
+{
+  "query": "SELECT * FROM invoices WHERE vendor = ? ORDER BY date DESC LIMIT 10",
+  "params": ["Acme Corp"]
+}
+
+// UPDATE query
+{
+  "query": "UPDATE invoices SET status = ? WHERE invoice_number = ?",
+  "params": ["paid", "INV-2024-001"]
+}
+```
+
+---
+
+## Complete Example: Support Ticket System
+
+Here's a complete example that uses all three tools to create an automated support system:
+
+```yaml
+server:
+  smtp_port: 25
+  smtp_host: "0.0.0.0"
+  allowed_domains:
+    - "support.example.com"
+
+database:
+  path: "./emitt.db"
+
+llm:
+  provider: "openai"
+  api_key: "${OPENAI_API_KEY}"
+  model: "gpt-5.2"
+
+smtp:
+  provider: "resend"
+  resend_key: "${RESEND_API_KEY}"
+  from_address: "support@example.com"
+  from_name: "Support Team"
+
+mailboxes:
+  - name: "support-tickets"
+    match:
+      to: "support@.*"
+    processor:
+      type: "llm"
+      system_prompt: |
+        You are an intelligent support ticket manager. When an email arrives:
+
+        1. ANALYZE the email to determine:
+           - Category: bug, feature_request, question, billing, other
+           - Priority: low, medium, high, urgent
+           - Summary: Brief one-line description
+
+        2. CREATE a ticket by calling http_request:
+           POST https://api.linear.app/graphql
+           Headers: Authorization: Bearer ${LINEAR_API_KEY}
+           Create an issue with the extracted information
+
+        3. STORE in database for tracking:
+           INSERT INTO support_tickets (email, category, priority, summary, created_at)
+
+        4. REPLY to the sender:
+           - Acknowledge receipt
+           - Provide ticket number
+           - Set expectations for response time
+
+        Be professional, empathetic, and helpful.
+      tools:
+        - http_request
+        - database_query
+        - send_email
+
+  - name: "urgent-alerts"
+    match:
+      subject: "(?i)(urgent|critical|down|outage)"
+    processor:
+      type: "llm"
+      system_prompt: |
+        This is an urgent alert. Immediately:
+        1. POST to Slack webhook to alert the on-call team
+        2. Create a high-priority ticket
+        3. Reply acknowledging the urgency
+      tools:
+        - http_request
+        - send_email
+
+  - name: "catch-all"
+    match:
+      to: ".*"
+    processor:
+      type: "forward"
+      forward_to: "admin@example.com"
+```
+
 ### Environment Variables
 
 - `OPENAI_API_KEY` - Your OpenAI API key
+- `RESEND_API_KEY` - Your Resend API key (if using Resend for email)
 
 ## Usage
 
