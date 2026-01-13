@@ -1,179 +1,185 @@
 package processor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/sashabaranov/go-openai"
 
 	"github.com/emitt/emitt/internal/config"
 	"github.com/emitt/emitt/internal/tools"
 )
 
-// LLMClient wraps the OpenAI client
+// LLMClient wraps the OpenAI Responses API
 type LLMClient struct {
-	client   *openai.Client
-	model    string
-	maxTokens int
-	temp     float32
-	logger   zerolog.Logger
+	apiKey  string
+	model   string
+	baseURL string
+	client  *http.Client
+	logger  zerolog.Logger
 }
 
 // NewLLMClient creates a new LLM client
 func NewLLMClient(cfg *config.LLMConfig, logger zerolog.Logger) *LLMClient {
-	client := openai.NewClient(cfg.APIKey)
-
 	return &LLMClient{
-		client:    client,
-		model:     cfg.Model,
-		maxTokens: cfg.MaxTokens,
-		temp:      cfg.Temperature,
-		logger:    logger.With().Str("component", "llm").Logger(),
+		apiKey:  cfg.APIKey,
+		model:   cfg.Model,
+		baseURL: "https://api.openai.com/v1",
+		client: &http.Client{
+			Timeout: 120 * time.Second,
+		},
+		logger: logger.With().Str("component", "llm").Logger(),
 	}
 }
 
-// Message represents a chat message
-type Message struct {
-	Role       string          `json:"role"`
-	Content    string          `json:"content"`
-	ToolCallID string          `json:"tool_call_id,omitempty"`
-	ToolCalls  []ToolCall      `json:"tool_calls,omitempty"`
+// ResponseRequest represents a request to the Responses API
+type ResponseRequest struct {
+	Model           string                   `json:"model"`
+	Input           interface{}              `json:"input"`
+	Instructions    string                   `json:"instructions,omitempty"`
+	Tools           []Tool                   `json:"tools,omitempty"`
+	ToolChoice      string                   `json:"tool_choice,omitempty"`
+	MaxOutputTokens int                      `json:"max_output_tokens,omitempty"`
+	Temperature     float32                  `json:"temperature,omitempty"`
+	Store           bool                     `json:"store"`
 }
 
-// ToolCall represents a function call from the LLM
-type ToolCall struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Arguments string `json:"arguments"`
+// Tool represents a tool definition for the Responses API
+type Tool struct {
+	Type     string    `json:"type"`
+	Function *Function `json:"function,omitempty"`
 }
 
-// ChatRequest represents a chat completion request
-type ChatRequest struct {
-	SystemPrompt string
-	Messages     []Message
-	Tools        []openai.Tool
+// Function represents a function tool
+type Function struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  map[string]interface{} `json:"parameters"`
 }
 
-// ChatResponse represents a chat completion response
-type ChatResponse struct {
-	Message    Message
-	ToolCalls  []ToolCall
-	FinishReason string
-	Usage      Usage
+// ResponseObject represents the response from the Responses API
+type ResponseObject struct {
+	ID          string       `json:"id"`
+	Object      string       `json:"object"`
+	Status      string       `json:"status"`
+	Output      []OutputItem `json:"output"`
+	Error       *ErrorObject `json:"error"`
+	Usage       *Usage       `json:"usage"`
+}
+
+// OutputItem represents an item in the response output
+type OutputItem struct {
+	Type      string        `json:"type"`
+	ID        string        `json:"id"`
+	Status    string        `json:"status"`
+	Role      string        `json:"role"`
+	Content   []ContentItem `json:"content,omitempty"`
+	Name      string        `json:"name,omitempty"`
+	Arguments string        `json:"arguments,omitempty"`
+	CallID    string        `json:"call_id,omitempty"`
+}
+
+// ContentItem represents content within an output item
+type ContentItem struct {
+	Type string `json:"type"`
+	Text string `json:"text,omitempty"`
+}
+
+// ErrorObject represents an error from the API
+type ErrorObject struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
 }
 
 // Usage represents token usage
 type Usage struct {
-	PromptTokens     int `json:"prompt_tokens"`
-	CompletionTokens int `json:"completion_tokens"`
-	TotalTokens      int `json:"total_tokens"`
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+	TotalTokens  int `json:"total_tokens"`
 }
 
-// Chat sends a chat completion request
-func (c *LLMClient) Chat(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
-	messages := make([]openai.ChatCompletionMessage, 0, len(req.Messages)+1)
+// InputMessage represents an input message
+type InputMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+}
 
-	// Add system prompt if provided
-	if req.SystemPrompt != "" {
-		messages = append(messages, openai.ChatCompletionMessage{
-			Role:    openai.ChatMessageRoleSystem,
-			Content: req.SystemPrompt,
-		})
+// FunctionCallInput represents a function call result input
+type FunctionCallInput struct {
+	Type   string `json:"type"`
+	CallID string `json:"call_id"`
+	Output string `json:"output"`
+}
+
+// Chat sends a request to the Responses API
+func (c *LLMClient) Chat(ctx context.Context, systemPrompt string, input interface{}, apiTools []Tool) (*ResponseObject, error) {
+	req := ResponseRequest{
+		Model:        c.model,
+		Input:        input,
+		Instructions: systemPrompt,
+		Tools:        apiTools,
+		ToolChoice:   "auto",
+		Temperature:  0.7,
+		Store:        false,
 	}
 
-	// Convert messages
-	for _, m := range req.Messages {
-		msg := openai.ChatCompletionMessage{
-			Role:    m.Role,
-			Content: m.Content,
-		}
-		if m.ToolCallID != "" {
-			msg.ToolCallID = m.ToolCallID
-		}
-		if len(m.ToolCalls) > 0 {
-			msg.ToolCalls = make([]openai.ToolCall, len(m.ToolCalls))
-			for i, tc := range m.ToolCalls {
-				msg.ToolCalls[i] = openai.ToolCall{
-					ID:   tc.ID,
-					Type: openai.ToolTypeFunction,
-					Function: openai.FunctionCall{
-						Name:      tc.Name,
-						Arguments: tc.Arguments,
-					},
-				}
-			}
-		}
-		messages = append(messages, msg)
-	}
-
-	// Build request
-	chatReq := openai.ChatCompletionRequest{
-		Model:       c.model,
-		Messages:    messages,
-		MaxTokens:   c.maxTokens,
-		Temperature: c.temp,
-	}
-
-	if len(req.Tools) > 0 {
-		chatReq.Tools = req.Tools
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	c.logger.Debug().
 		Str("model", c.model).
-		Int("message_count", len(messages)).
-		Int("tool_count", len(req.Tools)).
-		Msg("Sending chat request")
+		RawJSON("request", reqBody).
+		Msg("Sending request to Responses API")
 
-	// Send request
-	resp, err := c.client.CreateChatCompletion(ctx, chatReq)
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", c.baseURL+"/responses", bytes.NewReader(reqBody))
 	if err != nil {
-		return nil, fmt.Errorf("chat completion failed: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
-	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("no choices in response")
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	resp, err := c.client.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
-	choice := resp.Choices[0]
-
-	// Build response
-	response := &ChatResponse{
-		Message: Message{
-			Role:    choice.Message.Role,
-			Content: choice.Message.Content,
-		},
-		FinishReason: string(choice.FinishReason),
-		Usage: Usage{
-			PromptTokens:     resp.Usage.PromptTokens,
-			CompletionTokens: resp.Usage.CompletionTokens,
-			TotalTokens:      resp.Usage.TotalTokens,
-		},
+	if resp.StatusCode != http.StatusOK {
+		c.logger.Error().
+			Int("status", resp.StatusCode).
+			Str("body", string(body)).
+			Msg("API error")
+		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
 	}
 
-	// Extract tool calls
-	if len(choice.Message.ToolCalls) > 0 {
-		response.ToolCalls = make([]ToolCall, len(choice.Message.ToolCalls))
-		response.Message.ToolCalls = make([]ToolCall, len(choice.Message.ToolCalls))
-		for i, tc := range choice.Message.ToolCalls {
-			toolCall := ToolCall{
-				ID:        tc.ID,
-				Name:      tc.Function.Name,
-				Arguments: tc.Function.Arguments,
-			}
-			response.ToolCalls[i] = toolCall
-			response.Message.ToolCalls[i] = toolCall
-		}
+	var result ResponseObject
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	if result.Error != nil {
+		return nil, fmt.Errorf("API error: %s - %s", result.Error.Code, result.Error.Message)
 	}
 
 	c.logger.Debug().
-		Str("finish_reason", response.FinishReason).
-		Int("tool_calls", len(response.ToolCalls)).
-		Int("total_tokens", response.Usage.TotalTokens).
-		Msg("Received chat response")
+		Str("status", result.Status).
+		Int("output_items", len(result.Output)).
+		Msg("Received response")
 
-	return response, nil
+	return &result, nil
 }
 
 // ProcessWithTools runs a conversation loop with tool calling
@@ -189,49 +195,99 @@ func (c *LLMClient) ProcessWithTools(
 		maxIterations = 10
 	}
 
-	messages := []Message{
-		{Role: openai.ChatMessageRoleUser, Content: userMessage},
+	// Convert registry tools to API tools
+	apiTools := c.convertTools(registry, toolNames)
+
+	// Start with user message
+	input := []interface{}{
+		InputMessage{Role: "user", Content: userMessage},
 	}
 
-	openaiTools := registry.ToOpenAITools(toolNames)
-
 	for i := 0; i < maxIterations; i++ {
-		resp, err := c.Chat(ctx, ChatRequest{
-			SystemPrompt: systemPrompt,
-			Messages:     messages,
-			Tools:        openaiTools,
-		})
+		resp, err := c.Chat(ctx, systemPrompt, input, apiTools)
 		if err != nil {
 			return "", err
 		}
 
-		// Add assistant message
-		messages = append(messages, resp.Message)
-
-		// Check if done
-		if resp.FinishReason == "stop" || len(resp.ToolCalls) == 0 {
-			return resp.Message.Content, nil
+		// Check for completion
+		if resp.Status == "completed" {
+			// Look for text output
+			for _, item := range resp.Output {
+				if item.Type == "message" && item.Role == "assistant" {
+					for _, content := range item.Content {
+						if content.Type == "output_text" {
+							return content.Text, nil
+						}
+					}
+				}
+			}
 		}
 
-		// Execute tool calls
-		for _, tc := range resp.ToolCalls {
+		// Check for function calls
+		var functionCalls []OutputItem
+		for _, item := range resp.Output {
+			if item.Type == "function_call" {
+				functionCalls = append(functionCalls, item)
+			}
+		}
+
+		if len(functionCalls) == 0 {
+			// No function calls and completed - extract text
+			for _, item := range resp.Output {
+				if item.Type == "message" {
+					for _, content := range item.Content {
+						if content.Type == "output_text" {
+							return content.Text, nil
+						}
+					}
+				}
+			}
+			return "", nil
+		}
+
+		// Execute function calls and add results to input
+		for _, fc := range functionCalls {
 			c.logger.Info().
-				Str("tool", tc.Name).
-				Str("call_id", tc.ID).
+				Str("tool", fc.Name).
+				Str("call_id", fc.CallID).
 				Msg("Executing tool call")
 
-			result, err := registry.Execute(ctx, tc.Name, json.RawMessage(tc.Arguments))
+			result, err := registry.Execute(ctx, fc.Name, json.RawMessage(fc.Arguments))
 			if err != nil {
 				result, _ = tools.NewErrorResult(err)
 			}
 
-			messages = append(messages, Message{
-				Role:       openai.ChatMessageRoleTool,
-				Content:    string(result),
-				ToolCallID: tc.ID,
+			// Add function call output to input for next iteration
+			input = append(input, map[string]interface{}{
+				"type":    "function_call_output",
+				"call_id": fc.CallID,
+				"output":  string(result),
 			})
 		}
 	}
 
 	return "", fmt.Errorf("max iterations reached without completion")
+}
+
+// convertTools converts registry tools to API tool format
+func (c *LLMClient) convertTools(registry *tools.Registry, names []string) []Tool {
+	var regTools []tools.Tool
+	if len(names) == 0 {
+		regTools = registry.GetAll()
+	} else {
+		regTools = registry.GetByNames(names)
+	}
+
+	apiTools := make([]Tool, len(regTools))
+	for i, t := range regTools {
+		apiTools[i] = Tool{
+			Type: "function",
+			Function: &Function{
+				Name:        t.Name(),
+				Description: t.Description(),
+				Parameters:  t.Parameters(),
+			},
+		}
+	}
+	return apiTools
 }
