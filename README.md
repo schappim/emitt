@@ -16,6 +16,33 @@ Catch every email. **eMitt** is a Go application for receiving and processing in
 
 ## Installation
 
+### Quick Install (Recommended)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/schappim/emitt/main/install.sh | sh
+```
+
+This automatically detects your OS and architecture, downloads the appropriate binary, and installs it to `/usr/local/bin`.
+
+### Download Binary
+
+Download the latest release for your platform:
+
+| Platform | Architecture | Download |
+|----------|--------------|----------|
+| Linux | x86_64 | [emitt-linux-amd64](https://github.com/schappim/emitt/releases/latest/download/emitt-linux-amd64) |
+| Linux | ARM64 | [emitt-linux-arm64](https://github.com/schappim/emitt/releases/latest/download/emitt-linux-arm64) |
+| macOS | Intel | [emitt-darwin-amd64](https://github.com/schappim/emitt/releases/latest/download/emitt-darwin-amd64) |
+| macOS | Apple Silicon | [emitt-darwin-arm64](https://github.com/schappim/emitt/releases/latest/download/emitt-darwin-arm64) |
+| Windows | x86_64 | [emitt-windows-amd64.exe](https://github.com/schappim/emitt/releases/latest/download/emitt-windows-amd64.exe) |
+
+```bash
+# Example: Linux x86_64
+curl -fsSL https://github.com/schappim/emitt/releases/latest/download/emitt-linux-amd64 -o emitt
+chmod +x emitt
+sudo mv emitt /usr/local/bin/
+```
+
 ### From Source
 
 ```bash
@@ -26,8 +53,8 @@ go build -o emitt ./cmd/emitt
 
 ### Requirements
 
-- Go 1.21+
 - OpenAI API key (for LLM processing)
+- Go 1.21+ (only if building from source)
 
 ## Configuration
 

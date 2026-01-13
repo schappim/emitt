@@ -1,6 +1,7 @@
 # Binaries
 emitt
 emitt-linux
+dist/
 *.exe
 *.dll
 *.so
