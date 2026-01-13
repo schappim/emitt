@@ -240,6 +240,17 @@ func (c *LLMClient) ProcessWithTools(
 			return "", nil
 		}
 
+		// Add the function_call items to input first
+		for _, fc := range functionCalls {
+			input = append(input, map[string]interface{}{
+				"type":      "function_call",
+				"id":        fc.ID,
+				"call_id":   fc.CallID,
+				"name":      fc.Name,
+				"arguments": fc.Arguments,
+			})
+		}
+
 		// Execute function calls and add results to input
 		for _, fc := range functionCalls {
 			c.logger.Info().
